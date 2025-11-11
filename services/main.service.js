@@ -1,0 +1,304 @@
+import { Op, fn, col, where } from 'sequelize';
+import Api_logs from '../models/api_logs.js';
+import Api_logs_new from '../models/api_logs_new.js';
+import axios from 'axios';
+import dbConfig from '../config/jsonReader.js';
+const client_participant_id = dbConfig.entity_id;
+const addTelemetryData = async (req, res) => {
+    try {
+        console.log('-------------- aipTelemetryApi call --------------------------------');
+        // Validate req.body
+        if (!req.body || typeof req.body !== 'object') {
+            return res.status(400).json({ status: false, code: 400, message: 'Invalid or missing request body', results: null });
+        }
+        const data = req.body;
+        const requiredFields = [
+            'server_participant_id',
+            'telemetry_id',
+            'api_endpoint',
+            'request_timestamp',
+            'response_status_code',
+            'response_timestamp',
+            'response_status'
+        ];
+        // Check missing or empty fields
+        const missingFields = requiredFields.filter(field => {
+            return data[field] === undefined || data[field] === null || data[field] === '';
+        });
+
+        if (missingFields.length > 0) {
+            return res.status(200).json({ status: false, code: 400, message: 'Missing required fields', results: { missingFields } });
+        }
+        const allowedStatusCodes = [200, 400, 401, 403, 404, 500, 501, 504];
+        const responseCode = parseInt(data.response_status_code, 10);
+
+        if (!allowedStatusCodes.includes(responseCode)) {
+            return res.status(200).json({
+                status: false,
+                code: 400,
+                message: `Invalid response status code. Allowed values are: ${allowedStatusCodes.join(', ')}`,
+                results: null
+            });
+        }
+        // const requestTime = data.request_timestamp ? new Date(data.request_timestamp) : null;
+        // const responseTime = data.response_timestamp ? new Date(data.response_timestamp) : null;
+        // const responseTimeMs = requestTime && responseTime ? responseTime.getTime() - requestTime.getTime() : null;
+        // Api_logs.create({
+        Api_logs_new.create({
+            client_participant_id: client_participant_id || null,
+            server_participant_id: data.server_participant_id || null,
+            telemetry_id: data.telemetry_id || null,
+            api_endpoint: data.api_endpoint || null,
+            request_timestamp: data.request_timestamp ? new Date(data.request_timestamp) : null,
+            mapper_id: data.mapper_id || null,
+            response_type: data.response_type || null,
+            response_status: data.response_status || null,
+            response_status_code: data.response_status_code ? parseInt(data.response_status_code, 10) : null,
+            failure_reason: data.failure_reason || null,
+            response_timestamp: data.response_timestamp ? new Date(data.response_timestamp) : null,
+            data_size: data.data_size ? parseInt(data.data_size, 10) : null,
+            // api_latency: responseTimeMs ? parseInt(responseTimeMs, 10) : null,
+            output_validity: data.output_validity ? String(data.output_validity) : null,
+            token_validity: data.token_validity ? String(data.token_validity) : null
+        });
+
+        return res.status(200).json({ status: true, code: 200, message: 'Telemetry data inserted successfully', results: null });
+    } catch (error) {
+        console.error('Error in addTelemetryData:', error);
+        return res.status(500).json({ status: false, code: 500, message: 'Internal Server Error', results: error.message });
+    }
+};
+
+const structuredTelemetryData = async (date) => {
+    const MAX_RETRIES = 3;
+
+    try {
+        // if (!date || date === '') {
+        //     console.log('Date is missing');
+        //     return false;
+        // }
+
+        const batchSize = 10000;
+        let offset = 0;
+        let hasMoreData = true;
+
+        while (hasMoreData) {
+            const dataBatch = await Api_logs.findAll({
+                where: {
+                    [Op.and]: [
+                        // where(fn('DATE', col('added_date')), date),
+                        { is_shared: false }
+                    ]
+                },
+                order: [['log_id', 'ASC']],
+                limit: batchSize,
+                offset: offset
+            });
+            console.log('-----------dataBatch------------', dataBatch);
+
+            if (dataBatch.length === 0) {
+                hasMoreData = false;
+                console.log('No more data to process.');
+                break;
+            }
+
+            console.log(`Processing batch at offset ${offset}, size: ${dataBatch.length}`);
+
+            // Map the batch to the format required by the destination API
+            const formattedData = dataBatch.map(record => ({
+                unique_id: record.unique_id,
+                user_type: dbConfig.user_type,
+                aiu_id: record.aiu_id,
+                aip_id: record.aip_id,
+                trans_id: record.trans_id,
+                api_name: record.api_name,
+                mapper_id: record.mapper_id || null,
+                request_timestamp: record.request_timestamp,
+                method: record.method,
+                response_type: record.response_type,
+                response_status: record.response_status,
+                response_status_code: record.response_status_code,
+                failure_reason: record.failure_reason ?? null,
+                response_timestamp: record.response_timestamp,
+                data_size: record.data_size,
+                api_latency: record.api_latency,
+                response_time_ms: record.response_time_ms,
+                receipt_reference_data_validity: record.receipt_reference_data_validity,
+                receipt_reference_token_valid: record.receipt_reference_token_valid,
+                consent_required: record.consent_required,
+                consent_artifact_timestamp: record.consent_artifact_timestamp,
+                receipt_reference_timestamp: record.receipt_reference_timestamp,
+                telemetry_added_date: record.added_date
+            }));
+
+            let success = false;
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                    const headers = {
+                        'Content-Type': 'application/json',
+                        'x-api-key': dbConfig.api_key
+                    };
+
+                    const response = await axios.post(process.env.DESTINATION_API, formattedData, { headers });
+
+                    console.log(`✅ Success on attempt ${attempt}, status: ${response.status}`);
+
+                    if (response.status === 200) {
+                        // const idsToUpdate = dataBatch.map(record => parseInt(record.log_id, 10));
+                        const uniqueIds = response.data.data;
+                        console.log('----------------response.data------------------------------------',response.data);
+                        console.log('----------------uniqueIds------------------------------------',uniqueIds);
+                        
+                        const [updatedCount] = await Api_logs.update(
+                            { is_shared: true },
+                            { where: { unique_id: { [Op.in]: uniqueIds } } }
+                        );
+
+                        console.log(`🔄 Records updated: ${updatedCount}`);
+                        console.log(`✅ Batch at offset ${offset} marked as shared`);
+                        success = true;
+                        break; // Exit retry loop
+                    } else {
+                        console.warn(`⚠️ Unexpected status code: ${response.status}`);
+                    }
+
+                } catch (error) {
+                    console.error(`❌ Attempt ${attempt} failed at offset ${offset}:`, error.response?.data || error.message);
+
+                    // Optional: add delay before retry
+                    if (attempt < MAX_RETRIES) {
+                        await new Promise(res => setTimeout(res, 1000)); // wait 1s before retry
+                        console.log(`🔁 Retrying (${attempt + 1}/${MAX_RETRIES})...`);
+                    }
+                }
+            }
+
+            if (!success) {
+                console.error(`⛔ Failed to send batch after ${MAX_RETRIES} attempts at offset ${offset}. Moving on.`);
+                // Optional: log these records somewhere or store for manual retry
+            }
+
+            offset = offset + batchSize;
+        }
+
+        return true;
+
+    } catch (error) {
+        console.error('❌ Error in sendTelemetryDataTOCentral:', error);
+        return false;
+    }
+};
+
+const sendTelemetryDataTOCentral = async (date) => {
+    const MAX_RETRIES = 3;
+
+    try {
+        const batchSize = 10000;
+        let offset = 0;
+        let hasMoreData = true;
+
+        while (hasMoreData) {
+            const dataBatch = await Api_logs_new.findAll({
+                where: {
+                    [Op.and]: [
+                        // where(fn('DATE', col('added_date')), date),
+                        { is_shared: false }
+                    ]
+                },
+                order: [['log_id', 'ASC']],
+                limit: batchSize,
+                offset: offset,
+                row:true
+            });
+            // console.log('-----------dataBatch------------', dataBatch);
+
+            if (dataBatch.length === 0) {
+                hasMoreData = false;
+                console.log('No more data to process.');
+                break;
+            }
+
+            console.log(`Processing batch at offset ${offset}, size: ${dataBatch.length}`);
+
+            // Map the batch to the format required by the destination API
+            const formattedData = dataBatch.map(record => ({
+                unique_id: record.unique_id,
+                client_participant_id: record.client_participant_id,
+                server_participant_id: record.server_participant_id,
+                telemetry_id: record.telemetry_id,
+                api_endpoint: record.api_endpoint,
+                request_timestamp: record.request_timestamp,
+                mapper_id: record.mapper_id || null,
+                response_type: record.response_type,
+                response_status: record.response_status,
+                response_status_code: record.response_status_code,
+                failure_reason: record.failure_reason ?? null,
+                response_timestamp: record.response_timestamp,
+                data_size: record.data_size,
+                output_validity: record.output_validity,
+                token_validity: record.token_validity,
+                telemetry_added_date: record.added_date
+            }));
+
+            let success = false;
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                    const headers = {
+                        'Content-Type': 'application/json',
+                        'x-api-key': dbConfig.api_key
+                    };
+
+                    const response = await axios.post(process.env.DESTINATION_API, formattedData, { headers });
+
+                    console.log(`✅ Success on attempt ${attempt}, status: ${response.status}`);
+
+                    if (response.status === 200 || response.status ==='200') {
+                        // const idsToUpdate = dataBatch.map(record => parseInt(record.log_id, 10));
+                        const uniqueIds = response.data.data;
+                        console.log('----------------response.data------------------------------------',response.data);
+                        console.log('----------------uniqueIds------------------------------------',uniqueIds);
+                        
+                        const [updatedCount] = await Api_logs_new.update(
+                            { is_shared: true },
+                            { where: { unique_id: { [Op.in]: uniqueIds } } }
+                        );
+
+                        console.log(`🔄 Records updated: ${updatedCount}`);
+                        console.log(`✅ Batch at offset ${offset} marked as shared`);
+                        success = true;
+                        break; // Exit retry loop
+                    } else {
+                        console.warn(`⚠️ Unexpected status code: ${response.status}`);
+                    }
+
+                } catch (error) {
+                    console.error(`❌ Attempt ${attempt} failed at offset ${offset}:`, error.response?.data || error.message);
+
+                    // Optional: add delay before retry
+                    if (attempt < MAX_RETRIES) {
+                        await new Promise(res => setTimeout(res, 1000)); // wait 1s before retry
+                        console.log(`🔁 Retrying (${attempt + 1}/${MAX_RETRIES})...`);
+                    }
+                }
+            }
+
+            if (!success) {
+                console.error(`⛔ Failed to send batch after ${MAX_RETRIES} attempts at offset ${offset}. Moving on.`);
+                // Optional: log these records somewhere or store for manual retry
+            }
+
+            offset = offset + batchSize;
+        }
+
+        return true;
+
+    } catch (error) {
+        console.error('❌ Error in sendTelemetryDataTOCentral:', error);
+        return false;
+    }
+};
+
+export {
+    addTelemetryData,
+    sendTelemetryDataTOCentral
+};
