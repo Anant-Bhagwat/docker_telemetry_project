@@ -10,13 +10,13 @@ console.log('port',port);
 const start = async () => {
 	try {
 
-		const requiredEnv = ['PORT'];
+		// const requiredEnv = ['PORT'];
 
-		for (const envdata of requiredEnv) {
-			if (!process.env[envdata]) {
-				throw new Error(`${envdata} must be defined.`);
-			}
-		}
+		// for (const envdata of requiredEnv) {
+		// 	if (!process.env[envdata]) {
+		// 		throw new Error(`${envdata} must be defined.`);
+		// 	}
+		// }
 
 		app.listen(port, () => {
 			console.log('Agristack Telemetry Project is running on port: ', port);
