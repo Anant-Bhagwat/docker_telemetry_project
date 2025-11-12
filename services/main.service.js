@@ -1,6 +1,6 @@
 import { Op, fn, col, where } from 'sequelize';
 import Api_logs from '../models/api_logs.js';
-import Api_logs_new from '../models/api_logs_new.js';
+// import Api_logs_new from '../models/api_logs_new.js';
 import axios from 'axios';
 import dbConfig from '../config/jsonReader.js';
 const client_participant_id = dbConfig.entity_id;
@@ -27,24 +27,22 @@ const addTelemetryData = async (req, res) => {
         });
 
         if (missingFields.length > 0) {
-            return res.status(200).json({ status: false, code: 400, message: 'Missing required fields', results: { missingFields } });
+            return res.status(200).json({ status: 'NACK', message: `Missing required fields are ${missingFields}` });
         }
         const allowedStatusCodes = [200, 400, 401, 403, 404, 500, 501, 504];
         const responseCode = parseInt(data.response_status_code, 10);
 
         if (!allowedStatusCodes.includes(responseCode)) {
             return res.status(200).json({
-                status: false,
-                code: 400,
-                message: `Invalid response status code. Allowed values are: ${allowedStatusCodes.join(', ')}`,
-                results: null
+                status: 'NACK',
+                message: `Invalid response status code. Allowed values are: ${allowedStatusCodes.join(', ')}`
             });
         }
         // const requestTime = data.request_timestamp ? new Date(data.request_timestamp) : null;
         // const responseTime = data.response_timestamp ? new Date(data.response_timestamp) : null;
         // const responseTimeMs = requestTime && responseTime ? responseTime.getTime() - requestTime.getTime() : null;
-        // Api_logs.create({
-        Api_logs_new.create({
+        Api_logs.create({
+        // Api_logs_new.create({
             client_participant_id: client_participant_id || null,
             server_participant_id: data.server_participant_id || null,
             telemetry_id: data.telemetry_id || null,
@@ -62,7 +60,7 @@ const addTelemetryData = async (req, res) => {
             token_validity: data.token_validity ? String(data.token_validity) : null
         });
 
-        return res.status(200).json({ status: true, code: 200, message: 'Telemetry data inserted successfully', results: null });
+        return res.status(200).json({ status: 'ACK', message: 'Telemetry record stored successfully' });
     } catch (error) {
         console.error('Error in addTelemetryData:', error);
         return res.status(500).json({ status: false, code: 500, message: 'Internal Server Error', results: error.message });
@@ -198,7 +196,7 @@ const sendTelemetryDataTOCentral = async (date) => {
         let hasMoreData = true;
 
         while (hasMoreData) {
-            const dataBatch = await Api_logs_new.findAll({
+            const dataBatch = await Api_logs.findAll({
                 where: {
                     [Op.and]: [
                         // where(fn('DATE', col('added_date')), date),
@@ -258,7 +256,7 @@ const sendTelemetryDataTOCentral = async (date) => {
                         console.log('----------------response.data------------------------------------',response.data);
                         console.log('----------------uniqueIds------------------------------------',uniqueIds);
                         
-                        const [updatedCount] = await Api_logs_new.update(
+                        const [updatedCount] = await Api_logs.update(
                             { is_shared: true },
                             { where: { unique_id: { [Op.in]: uniqueIds } } }
                         );
