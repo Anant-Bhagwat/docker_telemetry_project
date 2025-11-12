@@ -9,7 +9,7 @@ const addTelemetryData = async (req, res) => {
         console.log('-------------- aipTelemetryApi call --------------------------------');
         // Validate req.body
         if (!req.body || typeof req.body !== 'object') {
-            return res.status(400).json({ status: false, code: 400, message: 'Invalid or missing request body', results: null });
+            return res.status(400).json({ status: 'NACK', message: 'Invalid or missing request body' });
         }
         const data = req.body;
         const requiredFields = [
@@ -27,13 +27,13 @@ const addTelemetryData = async (req, res) => {
         });
 
         if (missingFields.length > 0) {
-            return res.status(200).json({ status: 'NACK', message: `Missing required fields are ${missingFields}` });
+            return res.status(400).json({ status: 'NACK', message: `Missing required fields are ${missingFields}` });
         }
         const allowedStatusCodes = [200, 400, 401, 403, 404, 500, 501, 504];
         const responseCode = parseInt(data.response_status_code, 10);
 
         if (!allowedStatusCodes.includes(responseCode)) {
-            return res.status(200).json({
+            return res.status(400).json({
                 status: 'NACK',
                 message: `Invalid response status code. Allowed values are: ${allowedStatusCodes.join(', ')}`
             });
@@ -63,7 +63,7 @@ const addTelemetryData = async (req, res) => {
         return res.status(200).json({ status: 'ACK', message: 'Telemetry record stored successfully' });
     } catch (error) {
         console.error('Error in addTelemetryData:', error);
-        return res.status(500).json({ status: false, code: 500, message: 'Internal Server Error', results: error.message });
+        return res.status(500).json({ status: 'ERROR', message: 'Internal Server Error' });
     }
 };
 

@@ -35,8 +35,8 @@ app.get('/', async (req, res) => {
 
 
 app.use('/main', mainRouters);
-const schedule = dbConfig.schedule || [ '0 */3 * * * *' ]
-// const schedule = [ '52 11 * * *' ]
+// const schedule = dbConfig.schedule || [ '0 */3 * * * *' ]
+const schedule = [ '21 12 * * *' ]
 
 schedule.forEach((cronTime) => {
   cron.schedule(cronTime, async () => {
