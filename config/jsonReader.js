@@ -1,16 +1,25 @@
 import fs from 'fs';
 import path from 'path';
-const dbConfigPath = 'D:\\config.json';
+import { fileURLToPath } from 'url';
 
-let dbConfig = {};
+// ESM-safe __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+// const dockerConfigPath = '/app/config.json';
+const dockerConfigPath = './config.json';
+const localConfigPath = path.join(__dirname, 'config.json');
+let dbConfig;
 try {
-  const data = fs.readFileSync(dbConfigPath, 'utf8');
-  dbConfig = JSON.parse(data);
-} catch (err) {
-  console.error('Error reading DB config:', err);
-}
+  const configPath = fs.existsSync(dockerConfigPath)
+    ? dockerConfigPath
+    : localConfigPath;
 
-// const configPath = path.join('/app/config', 'config.json');
-// dbConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  const rawData = fs.readFileSync(configPath, 'utf8');
+  dbConfig = JSON.parse(rawData);
+  console.log(`Config loaded from: ${configPath}`);
+} catch (err) {
+  console.error('❌ Failed to load config.json:', err);
+  process.exit(1); // Fail fast (recommended)
+}
 
 export default dbConfig;

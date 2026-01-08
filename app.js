@@ -47,9 +47,9 @@ schedule.forEach((cronTime) => {
     const success = await sendTelemetryDataTOCentral(date);
 
     if (success) {
-      console.log('✅ Telemetry data sent successfully.');
+      console.log('✅ Cron job run successfully.');
     } else {
-      console.log('❌ Failed to send telemetry data.');
+      console.log('❌ Cron job failed.');
     }
   });
 });

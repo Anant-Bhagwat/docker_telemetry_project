@@ -3,11 +3,11 @@ import Api_logs from '../models/api_logs.js';
 // import Api_logs_new from '../models/api_logs_new.js';
 import axios from 'axios';
 import dbConfig from '../config/jsonReader.js';
+import { validate as isUUID } from 'uuid';
 const client_participant_id = dbConfig.entity_id;
 const addTelemetryData = async (req, res) => {
     try {
         console.log('-------------- aipTelemetryApi call --------------------------------');
-        // Validate req.body
         if (!req.body || typeof req.body !== 'object') {
             return res.status(400).json({ status: 'NACK', message: 'Invalid or missing request body' });
         }
@@ -17,55 +17,80 @@ const addTelemetryData = async (req, res) => {
             'telemetry_id',
             'api_endpoint',
             'request_timestamp',
-            'response_status_code',
             'response_timestamp',
-            'response_status'
+            'response_status_code',
+            'response_status',
+            'response_type'
         ];
-        // Check missing or empty fields
-        const missingFields = requiredFields.filter(field => {
-            return data[field] === undefined || data[field] === null || data[field] === '';
-        });
+        const missingFields = requiredFields.filter(
+            field => data[field] === undefined || data[field] === null || data[field] === ''
+        );
 
-        if (missingFields.length > 0) {
-            return res.status(400).json({ status: 'NACK', message: `Missing required fields are ${missingFields}` });
-        }
-        const allowedStatusCodes = [200, 400, 401, 403, 404, 500, 501, 504];
-        const responseCode = parseInt(data.response_status_code, 10);
-
-        if (!allowedStatusCodes.includes(responseCode)) {
+        if (missingFields.length) {
             return res.status(400).json({
                 status: 'NACK',
-                message: `Invalid response status code. Allowed values are: ${allowedStatusCodes.join(', ')}`
+                message: `Missing required fields: ${missingFields.join(', ')}`
             });
         }
-        // const requestTime = data.request_timestamp ? new Date(data.request_timestamp) : null;
-        // const responseTime = data.response_timestamp ? new Date(data.response_timestamp) : null;
-        // const responseTimeMs = requestTime && responseTime ? responseTime.getTime() - requestTime.getTime() : null;
-        Api_logs.create({
-        // Api_logs_new.create({
-            client_participant_id: client_participant_id || null,
-            server_participant_id: data.server_participant_id || null,
-            telemetry_id: data.telemetry_id || null,
-            api_endpoint: data.api_endpoint || null,
-            request_timestamp: data.request_timestamp ? new Date(data.request_timestamp) : null,
-            mapper_id: data.mapper_id || null,
-            response_type: data.response_type || null,
-            response_status: data.response_status || null,
-            response_status_code: data.response_status_code ? parseInt(data.response_status_code, 10) : null,
-            failure_reason: data.failure_reason || null,
-            response_timestamp: data.response_timestamp ? new Date(data.response_timestamp) : null,
-            data_size: data.data_size ? parseInt(data.data_size, 10) : null,
-            // api_latency: responseTimeMs ? parseInt(responseTimeMs, 10) : null,
-            output_validity: data.output_validity ? String(data.output_validity) : null,
-            token_validity: data.token_validity ? String(data.token_validity) : null
+        if (!isUUID(data.server_participant_id)) {
+            return res.status(400).json({ status: 'NACK', message: 'Invalid server_participant_id. Must be a valid UUID' });
+        }
+        if (!isUUID(data.telemetry_id)) {
+            return res.status(400).json({ status: 'NACK', message: 'Invalid telemetry_id. Must be a valid UUID' });
+        }
+        const responseCode = Number(data.response_status_code);
+        if (!Number.isInteger(responseCode)) {
+            return res.status(400).json({ status: 'NACK', message: `Invalid response_status_code. Value must be a positive integer` });
+        }
+        if (!['success', 'failure'].includes(data.response_status)) {
+            return res.status(400).json({ status: 'NACK', message: 'response_status must be success or failure' });
+        }
+        if (!['ACK', 'DATA', 'ERROR'].includes(data.response_type)) {
+            return res.status(400).json({ status: 'NACK', message: 'response_type must be ACK, DATA, or ERROR' });
+        }
+        const isValidDateTime = (value) => {
+            if (typeof value !== 'string') return false;
+            const d = new Date(value);
+            if (isNaN(d.getTime())) return false;
+            return /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/.test(value);
+        };
+        const requestTime = isValidDateTime(data.request_timestamp) ? new Date(data.request_timestamp) : null;
+        const responseTime = isValidDateTime(data.response_timestamp) ? new Date(data.response_timestamp) : null;
+        if (!requestTime) {
+            return res.status(400).json({ status: 'NACK', message: 'Invalid request_timestamp. Must include date and time' });
+        }
+        if (!responseTime) {
+            return res.status(400).json({ status: 'NACK', message: 'Invalid response_timestamp. Must include date and time' });
+        }
+
+        if (data.response_status === 'failure' && (data.failure_reason === undefined || data.failure_reason === null || String(data.failure_reason).trim() === '')) {
+            return res.status(400).json({ status: 'NACK', message: 'failure_reason is required when response_status is failure' });
+        }
+        await Api_logs.create({
+            client_participant_id: client_participant_id ?? null,
+            server_participant_id: data.server_participant_id,
+            telemetry_id: data.telemetry_id,
+            api_endpoint: data.api_endpoint,
+            request_timestamp: requestTime,
+            mapper_id: data.mapper_id ?? null,
+            response_type: data.response_type,
+            response_status: data.response_status,
+            response_status_code: responseCode,
+            failure_reason: data.failure_reason ?? null,
+            response_timestamp: responseTime,
+            data_size: data.data_size ?? null,
+            output_validity: data.output_validity != null ? String(data.output_validity) : null,
+            token_validity: data.token_validity != null ? String(data.token_validity) : null
         });
 
         return res.status(200).json({ status: 'ACK', message: 'Telemetry record stored successfully' });
+
     } catch (error) {
         console.error('Error in addTelemetryData:', error);
         return res.status(500).json({ status: 'ERROR', message: 'Internal Server Error' });
     }
 };
+
 
 const structuredTelemetryData = async (date) => {
     const MAX_RETRIES = 3;
@@ -144,9 +169,9 @@ const structuredTelemetryData = async (date) => {
                     if (response.status === 200) {
                         // const idsToUpdate = dataBatch.map(record => parseInt(record.log_id, 10));
                         const uniqueIds = response.data.data;
-                        console.log('----------------response.data------------------------------------',response.data);
-                        console.log('----------------uniqueIds------------------------------------',uniqueIds);
-                        
+                        console.log('----------------response.data------------------------------------', response.data);
+                        console.log('----------------uniqueIds------------------------------------', uniqueIds);
+
                         const [updatedCount] = await Api_logs.update(
                             { is_shared: true },
                             { where: { unique_id: { [Op.in]: uniqueIds } } }
@@ -191,7 +216,7 @@ const sendTelemetryDataTOCentral = async (date) => {
     const MAX_RETRIES = 3;
 
     try {
-        const batchSize = 10000;
+        const batchSize = 200;
         let offset = 0;
         let hasMoreData = true;
 
@@ -206,7 +231,7 @@ const sendTelemetryDataTOCentral = async (date) => {
                 order: [['log_id', 'ASC']],
                 limit: batchSize,
                 offset: offset,
-                row:true
+                row: true
             });
             // console.log('-----------dataBatch------------', dataBatch);
 
@@ -244,18 +269,18 @@ const sendTelemetryDataTOCentral = async (date) => {
                     const headers = {
                         'Content-Type': 'application/json',
                         'x-api-key': dbConfig.api_key
-                    };
+                    };                    
 
                     const response = await axios.post(process.env.DESTINATION_API, formattedData, { headers });
 
                     console.log(`✅ Success on attempt ${attempt}, status: ${response.status}`);
 
-                    if (response.status === 200 || response.status ==='200') {
+                    if (response.status === 200 || response.status === '200') {
                         // const idsToUpdate = dataBatch.map(record => parseInt(record.log_id, 10));
                         const uniqueIds = response.data.data;
-                        console.log('----------------response.data------------------------------------',response.data);
-                        console.log('----------------uniqueIds------------------------------------',uniqueIds);
-                        
+                        console.log('----------------response.data------------------------------------', response.data);
+                        console.log('----------------uniqueIds------------------------------------', uniqueIds);
+
                         const [updatedCount] = await Api_logs.update(
                             { is_shared: true },
                             { where: { unique_id: { [Op.in]: uniqueIds } } }

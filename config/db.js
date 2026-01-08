@@ -7,6 +7,7 @@ const sequelize = new Sequelize(
   dbConfig.db.password,
   {
     host: dbConfig.db.host,
+    port: dbConfig.db.port,
     dialect: dbConfig.db.dialect,
     timezone: 'Asia/Kolkata',
     dialectOptions: { timezone: 'Asia/Kolkata', },
