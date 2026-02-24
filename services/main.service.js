@@ -56,6 +56,12 @@ const addTelemetryData = async (req, res) => {
         };
         const requestTime = isValidDateTime(data.request_timestamp) ? new Date(data.request_timestamp) : null;
         const responseTime = isValidDateTime(data.response_timestamp) ? new Date(data.response_timestamp) : null;
+        if (requestTime > responseTime) {
+            return res.status(400).json({
+                status: 'NACK',
+                message: 'request_timestamp cannot be after response_timestamp'
+            });
+        }
         if (!requestTime) {
             return res.status(400).json({ status: 'NACK', message: 'Invalid request_timestamp. Must include date and time' });
         }
@@ -90,8 +96,6 @@ const addTelemetryData = async (req, res) => {
         return res.status(500).json({ status: 'ERROR', message: 'Internal Server Error' });
     }
 };
-
-
 const structuredTelemetryData = async (date) => {
     const MAX_RETRIES = 3;
 
@@ -216,7 +220,7 @@ const sendTelemetryDataTOCentral = async (date) => {
     const MAX_RETRIES = 3;
 
     try {
-        const batchSize = 200;
+        const batchSize = dbConfig.batch_size || 200;
         let offset = 0;
         let hasMoreData = true;
 
@@ -269,9 +273,9 @@ const sendTelemetryDataTOCentral = async (date) => {
                     const headers = {
                         'Content-Type': 'application/json',
                         'x-api-key': dbConfig.api_key
-                    };                    
+                    };
 
-                    const response = await axios.post(process.env.DESTINATION_API, formattedData, { headers });
+                    // const response = await axios.post(process.env.DESTINATION_API, formattedData, { headers });
 
                     console.log(`✅ Success on attempt ${attempt}, status: ${response.status}`);
 
