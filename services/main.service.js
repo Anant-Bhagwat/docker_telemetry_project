@@ -275,7 +275,7 @@ const sendTelemetryDataTOCentral = async (date) => {
                         'x-api-key': dbConfig.api_key
                     };
 
-                    // const response = await axios.post(process.env.DESTINATION_API, formattedData, { headers });
+                    const response = await axios.post(process.env.DESTINATION_API, formattedData, { headers });
 
                     console.log(`✅ Success on attempt ${attempt}, status: ${response.status}`);
 
