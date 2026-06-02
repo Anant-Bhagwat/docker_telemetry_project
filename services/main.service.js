@@ -7,7 +7,7 @@ import { validate as isUUID } from 'uuid';
 const client_participant_id = dbConfig.entity_id;
 const addTelemetryData = async (req, res) => {
     try {
-        console.log('-------------- aipTelemetryApi call --------------------------------');
+        console.log('-------------- aipTelemetryApi call start--------------------------------');
         if (!req.body || typeof req.body !== 'object') {
             return res.status(400).json({ status: 'NACK', message: 'Invalid or missing request body' });
         }
@@ -43,6 +43,12 @@ const addTelemetryData = async (req, res) => {
         const responseCode = Number(data.response_status_code);
         if (!Number.isInteger(responseCode)) {
             return res.status(400).json({ status: 'NACK', message: `Invalid response_status_code. Value must be a positive integer` });
+        }
+        if (data.data_size !== undefined && data.data_size !== null && data.data_size !== '') {
+            const sizeNumber = Number(data.data_size);
+            if (!Number.isFinite(sizeNumber)) {
+                return res.status(400).json({ status: 'NACK', message: 'data_size must be a number' });
+            }
         }
         if (!['success', 'failure'].includes(data.response_status)) {
             return res.status(400).json({ status: 'NACK', message: 'response_status must be success or failure' });
@@ -105,7 +111,7 @@ const addTelemetryData = async (req, res) => {
             output_validity: data.output_validity != null ? String(data.output_validity) : null,
             token_validity: data.token_validity != null ? String(data.token_validity) : null
         });
-
+        console.log('-------------- aipTelemetryApi call successfully end--------------------------------');
         return res.status(200).json({ status: 'ACK', message: 'Telemetry record stored successfully' });
 
     } catch (error) {
@@ -235,7 +241,6 @@ const structuredTelemetryData = async (date) => {
 
 const sendTelemetryDataTOCentral = async (date) => {
     const MAX_RETRIES = 3;
-
     try {
         const batchSize = dbConfig.batch_size || 200;
         let offset = 0;

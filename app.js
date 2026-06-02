@@ -35,21 +35,40 @@ app.get('/', async (req, res) => {
 
 
 app.use('/main', mainRouters);
-const schedule = dbConfig.schedule || [ '0 */3 * * * *' ]
-// const schedule = [ '21 12 * * *' ]
+const schedule = Array.isArray(dbConfig.schedule) && dbConfig.schedule.length > 0
+  ? dbConfig.schedule
+  : [ '0 */3 * * * *' ];
+
+let isSchedulerRunning = false;
 
 schedule.forEach((cronTime) => {
+  if (!cron.validate(cronTime)) {
+    console.error(`Invalid cron schedule: ${cronTime}`);
+    return;
+  }
+
   cron.schedule(cronTime, async () => {
+    if (isSchedulerRunning) {
+      console.log(`Skipping cron run at ${new Date().toISOString()} for schedule: ${cronTime} because another run is still in progress.`);
+      return;
+    }
+
+    isSchedulerRunning = true;
     console.log(`Cron job started at ${new Date().toISOString()} for schedule: ${cronTime}`);
 
-    const date = new Date().toISOString().slice(0, 10); // Today's date in YYYY-MM-DD
+    try {
+      const date = new Date().toISOString().slice(0, 10); // Today's date in YYYY-MM-DD
+      const success = await sendTelemetryDataTOCentral(date);
 
-    const success = await sendTelemetryDataTOCentral(date);
-
-    if (success) {
-      console.log('✅ Cron job run successfully.');
-    } else {
-      console.log('❌ Cron job failed.');
+      if (success) {
+        console.log('✅ Cron job run successfully.');
+      } else {
+        console.log('❌ Cron job failed.');
+      }
+    } catch (error) {
+      console.error('❌ Cron job error:', error);
+    } finally {
+      isSchedulerRunning = false;
     }
   });
 });

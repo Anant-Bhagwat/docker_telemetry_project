@@ -11,8 +11,10 @@ const sequelize = new Sequelize(
     dialect: dbConfig.db.dialect,
     timezone: 'Asia/Kolkata',
     dialectOptions: { timezone: 'Asia/Kolkata', },
+    logging: false,
   }
 );
+
 
 const checkDatabaseConnection = async (sequelizeInstance, dbName) => {
   try {
