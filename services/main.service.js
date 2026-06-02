@@ -20,7 +20,9 @@ const addTelemetryData = async (req, res) => {
             'response_timestamp',
             'response_status_code',
             'response_status',
-            'response_type'
+            'response_type',
+            'output_validity',
+            'token_validity'
         ];
         const missingFields = requiredFields.filter(
             field => data[field] === undefined || data[field] === null || data[field] === ''
@@ -47,6 +49,21 @@ const addTelemetryData = async (req, res) => {
         }
         if (!['ACK', 'DATA', 'ERROR'].includes(data.response_type)) {
             return res.status(400).json({ status: 'NACK', message: 'response_type must be ACK, DATA, or ERROR' });
+        }
+        const isBooleanValue = (value) => value === true || value === false || value === 'true' || value === 'false';
+        if (!isBooleanValue(data.output_validity)) {
+            return res.status(400).json({ status: 'NACK', message: 'output_validity must be true or false' });
+        }
+        if (!isBooleanValue(data.token_validity)) {
+            return res.status(400).json({ status: 'NACK', message: 'token_validity must be true or false' });
+        }
+        const outputValidityFalse = data.output_validity === false || data.output_validity === 'false';
+        const tokenValidityTrue = data.token_validity === true || data.token_validity === 'true';
+        if (data.response_status === 'failure' && !outputValidityFalse) {
+            return res.status(400).json({ status: 'NACK', message: 'output_validity must be false when response_status is failure' });
+        }
+        if (data.response_status === 'success' && !tokenValidityTrue) {
+            return res.status(400).json({ status: 'NACK', message: 'token_validity must be true when response_status is success' });
         }
         const isValidDateTime = (value) => {
             if (typeof value !== 'string') return false;
